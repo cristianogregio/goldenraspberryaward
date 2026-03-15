@@ -1,0 +1,40 @@
+# Maven
+target/
+pom.xml.tag
+pom.releaseBackup
+pom.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+.project
+.classpath
+.settings/
+.factorypath
+.cursor/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# H2 (file-based DB, if used later)
+*.db
+*.trace.db
+
+# Spring Boot
+application-local.properties
+application-local.yml
