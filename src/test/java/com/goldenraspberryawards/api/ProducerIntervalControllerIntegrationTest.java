@@ -13,7 +13,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -77,5 +80,19 @@ class ProducerIntervalControllerIntegrationTest
         assertThat(maxRecord.interval()).isEqualTo(9);
         assertThat(maxRecord.previousWin()).isEqualTo(1990);
         assertThat(maxRecord.followingWin()).isEqualTo(1999);
+    }
+
+    @Test
+    @DisplayName("Verificação falha quando o esperado nao corresponde ao resultado derivado do CSV de teste")
+    void equalsAssertionFailsWhenExpectedDoesNotMatchCsvBackedResponse() throws Exception
+    {
+        ProducerIntervalResponse api = getProducerIntervalsResponse();
+        // menor intervalo 1 (A e B); maior 9 (C, 1990→1999). Este payload contradiz o arquivo movielist-test.csv
+        ProducerIntervalResponse movielistTestCsv = new ProducerIntervalResponse(
+                List.of(new ProducerIntervalRecord("Producer C", 1, 1990, 1991)),
+                List.of(new ProducerIntervalRecord("Producer A", 50, 2000, 2050))
+        );
+        assertThatThrownBy(() -> assertThat(api).isEqualTo(movielistTestCsv))
+                .isInstanceOf(AssertionError.class);
     }
 }

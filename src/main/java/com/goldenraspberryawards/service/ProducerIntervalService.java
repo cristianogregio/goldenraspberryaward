@@ -3,18 +3,23 @@ package com.goldenraspberryawards.service;
 import com.goldenraspberryawards.api.dto.ProducerIntervalRecord;
 import com.goldenraspberryawards.api.dto.ProducerIntervalResponse;
 import com.goldenraspberryawards.model.MovieList;
-import com.goldenraspberryawards.model.Produtor;
+//import com.goldenraspberryawards.model.Produtor;
 import com.goldenraspberryawards.repository.MovieListRepository;
+
+//import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.Collections;
+//import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.SortedSet;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Retorna quem teve o menor e o maior intervalo entre dois prêmios.
@@ -37,61 +42,97 @@ public class ProducerIntervalService
     @Transactional(readOnly = true)
     public ProducerIntervalResponse getProducerIntervals()
     {
-        // Só os vencedores de cada ano
-        List<MovieList> winningMovies = movieListRepository.findByWinnerTrue(); 
 
-        // Monta mapa: nome do produtor -> anos em que venceu (ordenados, sem repetição)
-        Map<String, TreeSet<Integer>> producerWinYears = new LinkedHashMap<>(); 
-        for (MovieList movie : winningMovies)
-        {
-            int year = movie.getYear();
-            for (Produtor p : movie.getProducers())
-            {
-                String name = p.getName();
-                producerWinYears.computeIfAbsent(name, k -> new TreeSet<>()).add(year);
-            }
-        }
+        // 1. Busca apenas filmes vencedores
+        List<MovieList> winningMovies = movieListRepository.findByWinnerTrue();
 
-        // Para cada produtor com 2+ vitórias, calcula o intervalo entre vitórias consecutivas
-        List<ProducerIntervalRecord> allIntervals = new ArrayList<>();
-        for (Map.Entry<String, TreeSet<Integer>> e : producerWinYears.entrySet())
-        {
-            String producer = e.getKey();
-            List<Integer> years = new ArrayList<>(e.getValue());
-            if (years.size() < 2) continue; // Se o produtor tiver menos de 2 vitórias, não calcula o intervalo.
-            for (int i = 0; i < years.size() - 1; i++)
-            {
-                int prev = years.get(i);
-                int next = years.get(i + 1);
-                int interval = next - prev;
-                allIntervals.add(new ProducerIntervalRecord(producer, interval, prev, next));
-            }
-        }
+        // 2. Mapeia produtor -> anos em que venceu
+        //    - TreeSet garante ordenação automática e remoção de duplicados
+        Map<String, SortedSet<Integer>> producerWinYears =
+                winningMovies.stream()
+                        .flatMap(movie -> movie.getProducers().stream()
+                                .map(producer -> Map.entry(producer.getName(), movie.getYear())))
+                        .collect(Collectors.groupingBy(
+                                Map.Entry::getKey,
+                                LinkedHashMap::new, 
+                                Collectors.mapping(
+                                        Map.Entry::getValue,
+                                        Collectors.toCollection(TreeSet::new)
+                                )
+                        ));
 
-        if (allIntervals.isEmpty())
+        // 3. Calcula os intervalos entre vitorias consecutivas de cada produtor
+        List<ProducerIntervalRecord> intervals =
+                producerWinYears.entrySet().stream()
+                        // ignora produtores com menos de 2 vitórias
+                        .filter(entry -> entry.getValue().size() > 1)
+                        .flatMap(entry ->
+                        {
+                            String producer = entry.getKey();
+                            List<Integer> years = new ArrayList<>(entry.getValue());
+
+                            // cria pares consecutivos (ano atual vs próximo)
+                            return IntStream.range(0, years.size() - 1)
+                                    .mapToObj(i ->
+                                    {
+                                        int previous = years.get(i);
+                                        int next = years.get(i + 1);
+                                        int interval = next - previous;
+
+                                        return new ProducerIntervalRecord(
+                                                producer,
+                                                interval,
+                                                previous,
+                                                next
+                                        );
+                                    });
+                        })
+                        .toList();
+
+        // 4. Caso noo existam intervalos validos
+        if (intervals.isEmpty())
         {
             return new ProducerIntervalResponse(List.of(), List.of());
         }
 
-        // Menor e maior intervalo encontrados
-        int minInterval = allIntervals.stream().mapToInt(ProducerIntervalRecord::interval).min().orElseThrow();
-        int maxInterval = allIntervals.stream().mapToInt(ProducerIntervalRecord::interval).max().orElseThrow();
+        // 5. Determina menor e maior intervalo
+        int minInterval = intervals.stream()
+                .mapToInt(ProducerIntervalRecord::interval)
+                .min()
+                .orElse(0);
 
-        // Filtra e ordena: quem teve o menor intervalo; quem teve o maior intervalo
-        List<ProducerIntervalRecord> minList = allIntervals.stream()
-                .filter(r -> r.interval() == minInterval)
-                .sorted(Comparator.comparing(ProducerIntervalRecord::producer)
-                        .thenComparing(ProducerIntervalRecord::previousWin))
-                .toList();
-        List<ProducerIntervalRecord> maxList = allIntervals.stream()
-                .filter(r -> r.interval() == maxInterval)
-                .sorted(Comparator.comparing(ProducerIntervalRecord::producer)
-                        .thenComparing(ProducerIntervalRecord::previousWin))
-                .toList();
+        int maxInterval = intervals.stream()
+                .mapToInt(ProducerIntervalRecord::interval)
+                .max()
+                .orElse(0);
 
-        return new ProducerIntervalResponse(
-                Collections.unmodifiableList(minList),
-                Collections.unmodifiableList(maxList)
-        );
+        // 6. Define ordenação padrão: primeiro por produtor / depois pelo ano da vitoria anterior
+        Comparator<ProducerIntervalRecord> comparator =
+                Comparator.comparing(ProducerIntervalRecord::producer)
+                          .thenComparing(ProducerIntervalRecord::previousWin);
+
+        // 7. Filtra produtores com menor intervalo
+        List<ProducerIntervalRecord> minList =
+                intervals.stream()
+                        .filter(i -> i.interval() == minInterval)
+                        .sorted(comparator)
+                        .toList();
+
+        // 8. Filtra produtores com maior intervalo
+        List<ProducerIntervalRecord> maxList =
+                intervals.stream()
+                        .filter(i -> i.interval() == maxInterval)
+                        .sorted(comparator)
+                        .toList();
+
+        // 9. Retorna resposta (listas já são imutáveis com toList())
+        return new ProducerIntervalResponse(minList, maxList);
     }
+
+    // Minha opnião após refatorar é que às vezes o "for de for"  é mais legivel que o stream rsrs
+    // Streams tem o problema de ter que ficar decorrando todos os métodos da API para funcionar.
+    // Exemplo do flatmap e map e mapToInt Tive que recorrer ao chatGPT para relembrar a diferença entre eles. 
+    // map -> 1 elemento para 1 elemento. flatmap -> 1 elemento para n elementos.
+    // Mas o uso da API é mais performatico que o for de for.
+
 }

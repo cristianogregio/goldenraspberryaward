@@ -9,7 +9,6 @@ buildNumber.properties
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
 
-# IDE
 .idea/
 *.iml
 *.ipr
@@ -21,7 +20,6 @@ buildNumber.properties
 .classpath
 .settings/
 .factorypath
-.cursor/
 
 # OS
 .DS_Store
@@ -31,7 +29,6 @@ Thumbs.db
 *.log
 logs/
 
-# H2 (file-based DB, if used later)
 *.db
 *.trace.db
 
